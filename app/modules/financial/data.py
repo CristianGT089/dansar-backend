@@ -7,9 +7,9 @@ import openpyxl
 import pandas as pd
 from functools import lru_cache
 
-MERKACOL_DIR = Path("/home/crispy/Projects/merkacol-project")
-FUENTE_FILE  = MERKACOL_DIR / "LIBRO MAYOR RESUMIDO.xlsm"
-PYG_FILE     = MERKACOL_DIR / "PYG 2025 X TRIMESTRES COMPLETO.xlsm"
+DATA_DIR    = Path(__file__).resolve().parents[4] / "data"
+FUENTE_FILE = DATA_DIR / "LIBRO MAYOR RESUMIDO.xlsm"
+PYG_FILE    = DATA_DIR / "PYG 2025 X TRIMESTRES COMPLETO.xlsm"
 
 COMP_MONTH_COLS = {1:5,2:8,3:11,4:14,5:17,6:20,7:29,8:32,9:35,10:38,11:41,12:44}
 MERK_MONTH_COLS = {1:5,2:8,3:11,4:19,5:22,6:25,7:38,8:41,9:44,10:52,11:55,12:58}

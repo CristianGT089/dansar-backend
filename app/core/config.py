@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
-    # CORS
-    ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
+    # CORS — en producción reemplazar con el dominio exacto de Vercel
+    ALLOWED_ORIGINS: list[str] = ["*"]
 
     # Email
     MAIL_USERNAME: str = ""

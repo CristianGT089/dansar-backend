@@ -33,9 +33,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+_wildcard = settings.ALLOWED_ORIGINS == ["*"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.ALLOWED_ORIGINS,
+    allow_origin_regex=r".*" if _wildcard else None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

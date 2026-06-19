@@ -11,6 +11,7 @@ build/
 # Environments
 .env
 .env.*
+!.env.example
 .venv/
 venv/
 env/
@@ -25,6 +26,9 @@ htmlcov/
 # DB
 *.db
 *.sqlite3
+
+# Archivos Excel de demo — trackeados intencionalmente en data/
+# (no ignorar *.xlsm)
 
 # Node (backend has no node, but just in case)
 node_modules/

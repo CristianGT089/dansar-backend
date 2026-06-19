@@ -1,9 +1,32 @@
-node_modules/
-.next/
-.env
-.env.local
-.env*.local
-out/
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
 dist/
-*.tsbuildinfo
+build/
 
+# Environments
+.env
+.env.*
+.venv/
+venv/
+env/
+
+# Testing
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+
+# DB
+*.db
+*.sqlite3
+
+# Node (backend has no node, but just in case)
+node_modules/
+package.json
+package-lock.json

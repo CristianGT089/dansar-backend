@@ -7,7 +7,7 @@ import openpyxl
 import pandas as pd
 from functools import lru_cache
 
-DATA_DIR    = Path(__file__).resolve().parents[4] / "data"
+DATA_DIR    = Path(__file__).resolve().parents[3] / "data"
 FUENTE_FILE = DATA_DIR / "LIBRO MAYOR RESUMIDO.xlsm"
 PYG_FILE    = DATA_DIR / "PYG 2025 X TRIMESTRES COMPLETO.xlsm"
 

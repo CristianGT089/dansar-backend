@@ -1,0 +1,128 @@
+import uuid
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database import get_db
+from app.modules.auth.dependencies import CurrentUser, SuperAdmin
+from app.modules.users import service
+from app.modules.users.schemas import (
+    AssignUserToCompanyRequest,
+    ChangePasswordRequest,
+    UserCompanyRoleResponse,
+    UserCreate,
+    UserListResponse,
+    UserResponse,
+    UserUpdate,
+)
+
+router = APIRouter(prefix="/users", tags=["Users"])
+
+
+@router.get("", response_model=UserListResponse)
+async def list_users(
+    _: SuperAdmin,
+    db: AsyncSession = Depends(get_db),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+):
+    items, total = await service.list_users(db, page, page_size)
+    return UserListResponse(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("", response_model=UserResponse, status_code=201)
+async def create_user(
+    data: UserCreate,
+    _: SuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.create_user(db, data)
+
+
+@router.get("/me/companies")
+async def my_companies(
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from app.modules.users.models import UserCompanyRole
+
+    result = await db.execute(
+        select(UserCompanyRole)
+        .where(
+            UserCompanyRole.user_id == current_user.id,
+            UserCompanyRole.is_active == True,
+        )
+        .options(selectinload(UserCompanyRole.company))
+    )
+    roles = result.scalars().all()
+    return [
+        {"company_id": str(r.company_id), "company_name": r.company.name, "role": r.role}
+        for r in roles
+    ]
+
+
+@router.get("/{user_id}", response_model=UserResponse)
+async def get_user(
+    user_id: uuid.UUID,
+    _: SuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.get_user_or_404(db, user_id)
+
+
+@router.patch("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: uuid.UUID,
+    data: UserUpdate,
+    _: SuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.update_user(db, user_id, data)
+
+
+@router.post("/me/change-password")
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    await service.change_password(db, current_user, data.current_password, data.new_password)
+    return {"message": "Contraseña actualizada exitosamente"}
+
+
+# ── Usuarios por empresa ─────────────────────────────────────────────────────
+
+company_router = APIRouter(prefix="/companies/{company_id}/users", tags=["Company Users"])
+
+
+@company_router.get("", response_model=list[UserCompanyRoleResponse])
+async def list_company_users(
+    company_id: uuid.UUID,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    if not current_user.is_superadmin:
+        await service.assert_user_belongs_to_company(db, current_user.id, company_id)
+    return await service.list_company_users(db, company_id)
+
+
+@company_router.post("", response_model=UserCompanyRoleResponse, status_code=201)
+async def assign_user(
+    company_id: uuid.UUID,
+    data: AssignUserToCompanyRequest,
+    _: SuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.assign_user_to_company(db, company_id, data)
+
+
+@company_router.delete("/{user_id}", status_code=204)
+async def remove_user(
+    company_id: uuid.UUID,
+    user_id: uuid.UUID,
+    _: SuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    await service.remove_user_from_company(db, company_id, user_id)

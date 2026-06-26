@@ -8,6 +8,7 @@ from app.core.security import hash_password, verify_password
 from app.modules.users.models import User, UserCompanyRole
 from app.modules.users.schemas import (
     AssignUserToCompanyRequest,
+    CreateUserForCompanyRequest,
     UserCreate,
     UserUpdate,
 )
@@ -36,6 +37,13 @@ async def assert_user_belongs_to_company(
     if not role:
         raise ForbiddenError("No tienes acceso a esta empresa")
     return role
+
+
+async def get_user_role_in_company(
+    db: AsyncSession, user_id: uuid.UUID, company_id: uuid.UUID
+) -> str:
+    ucr = await assert_user_belongs_to_company(db, user_id, company_id)
+    return ucr.role
 
 
 async def list_users(
@@ -82,6 +90,20 @@ async def change_password(
     await db.flush()
 
 
+async def list_company_users_by_user(
+    db: AsyncSession, user_id: uuid.UUID
+) -> list[UserCompanyRole]:
+    result = await db.execute(
+        select(UserCompanyRole)
+        .where(
+            UserCompanyRole.user_id == user_id,
+            UserCompanyRole.is_active == True,
+        )
+        .options(selectinload(UserCompanyRole.user), selectinload(UserCompanyRole.company))
+    )
+    return result.scalars().all()
+
+
 async def list_company_users(
     db: AsyncSession, company_id: uuid.UUID
 ) -> list[UserCompanyRole]:
@@ -91,7 +113,7 @@ async def list_company_users(
             UserCompanyRole.company_id == company_id,
             UserCompanyRole.is_active == True,
         )
-        .options(selectinload(UserCompanyRole.user))
+        .options(selectinload(UserCompanyRole.user), selectinload(UserCompanyRole.company))
     )
     return result.scalars().all()
 
@@ -121,7 +143,70 @@ async def assign_user_to_company(
         db.add(role_entry)
 
     await db.flush()
-    await db.refresh(role_entry, ["user"])
+    await db.refresh(role_entry, ["user", "company"])
+    return role_entry
+
+
+async def create_user_for_company(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    data: CreateUserForCompanyRequest,
+    requester_role: str,
+) -> UserCompanyRole:
+    ROLE_HIERARCHY = {"admin": 2, "contador": 1, "viewer": 0}
+    if ROLE_HIERARCHY.get(data.role, -1) >= ROLE_HIERARCHY.get(requester_role, -1):
+        raise ForbiddenError(f"No puedes crear usuarios con rol '{data.role}'")
+
+    existing = await db.execute(select(User).where(User.email == data.email))
+    if existing.scalar_one_or_none():
+        raise ConflictError("Ya existe un usuario con ese email")
+
+    user = User(
+        email=data.email,
+        full_name=data.full_name,
+        hashed_password=hash_password(data.password),
+        is_superadmin=False,
+    )
+    db.add(user)
+    await db.flush()
+
+    role_entry = UserCompanyRole(
+        user_id=user.id,
+        company_id=company_id,
+        role=data.role,
+    )
+    db.add(role_entry)
+    await db.flush()
+    await db.refresh(role_entry, ["user", "company"])
+    return role_entry
+
+
+async def change_user_role_in_company(
+    db: AsyncSession,
+    company_id: uuid.UUID,
+    target_user_id: uuid.UUID,
+    new_role: str,
+    requester_role: str | None = None,
+) -> UserCompanyRole:
+    ROLE_HIERARCHY = {"admin": 2, "contador": 1, "viewer": 0}
+
+    if requester_role is not None:
+        if ROLE_HIERARCHY.get(new_role, -1) >= ROLE_HIERARCHY.get(requester_role, -1):
+            raise ForbiddenError(f"No puedes asignar el rol '{new_role}'")
+
+    result = await db.execute(
+        select(UserCompanyRole).where(
+            UserCompanyRole.user_id == target_user_id,
+            UserCompanyRole.company_id == company_id,
+            UserCompanyRole.is_active == True,
+        ).options(selectinload(UserCompanyRole.user), selectinload(UserCompanyRole.company))
+    )
+    role_entry = result.scalar_one_or_none()
+    if not role_entry:
+        raise NotFoundError("Usuario en esta empresa")
+
+    role_entry.role = new_role
+    await db.flush()
     return role_entry
 
 

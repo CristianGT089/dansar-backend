@@ -12,8 +12,13 @@ from app.modules.plans.schemas import (
     FeatureCreate,
     FeatureResponse,
     PlanResponse,
+    SetFeatureRolesRequest,
     ToggleFeatureRequest,
+    ToggleSubfeatureRequest,
 )
+from app.modules.users.models import SystemRole
+from app.modules.users.service import assert_user_belongs_to_company, get_user_role_in_company
+from app.shared.exceptions import ForbiddenError
 
 router = APIRouter(prefix="/plans", tags=["Plans"])
 
@@ -40,7 +45,7 @@ async def create_feature(
     _: SuperAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.create_feature(db, data.key, data.name, data.description, data.module)
+    return await service.create_feature(db, data.key, data.name, data.description, data.module, data.parent_key)
 
 
 # ── Features por empresa ──────────────────────────────────────────────────────
@@ -54,7 +59,6 @@ async def get_company_features(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    from app.modules.users.service import assert_user_belongs_to_company
     if not current_user.is_superadmin:
         await assert_user_belongs_to_company(db, current_user.id, company_id)
     features = await service.get_company_features(db, company_id)
@@ -79,4 +83,39 @@ async def toggle_feature(
     _: SuperAdmin,
     db: AsyncSession = Depends(get_db),
 ):
+    """Superadmin only — toggle any feature including parents."""
     return await service.toggle_feature(db, company_id, data.feature_key, data.enabled)
+
+
+@company_plans_router.patch("/features/{feature_key}/toggle")
+async def toggle_subfeature(
+    company_id: uuid.UUID,
+    feature_key: str,
+    data: ToggleSubfeatureRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin or superadmin — toggle subfeatures only."""
+    if not current_user.is_superadmin:
+        await assert_user_belongs_to_company(db, current_user.id, company_id)
+        role = await get_user_role_in_company(db, current_user.id, company_id)
+        if role != SystemRole.admin:
+            raise ForbiddenError("Solo los administradores pueden modificar funcionalidades")
+    return await service.toggle_subfeature(db, company_id, feature_key, data.enabled)
+
+
+@company_plans_router.patch("/features/{feature_key}/roles")
+async def set_feature_roles(
+    company_id: uuid.UUID,
+    feature_key: str,
+    data: SetFeatureRolesRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin or superadmin — configure which roles can access a subfeature."""
+    if not current_user.is_superadmin:
+        await assert_user_belongs_to_company(db, current_user.id, company_id)
+        role = await get_user_role_in_company(db, current_user.id, company_id)
+        if role != SystemRole.admin:
+            raise ForbiddenError("Solo los administradores pueden modificar roles de funcionalidades")
+    return await service.set_feature_roles(db, company_id, feature_key, data.roles)

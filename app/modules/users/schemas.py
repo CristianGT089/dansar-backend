@@ -53,14 +53,53 @@ class AssignUserToCompanyRequest(BaseModel):
         return v
 
 
+class CompanyBrief(BaseModel):
+    id: uuid.UUID
+    name: str
+    model_config = {"from_attributes": True}
+
+
 class UserCompanyRoleResponse(BaseModel):
     user_id: uuid.UUID
     company_id: uuid.UUID
     role: str
     is_active: bool
     user: UserResponse
+    company: Optional[CompanyBrief] = None
 
     model_config = {"from_attributes": True}
+
+
+class CreateUserForCompanyRequest(BaseModel):
+    email: EmailStr
+    full_name: str
+    password: str
+    role: str = "viewer"
+
+    @field_validator("password")
+    @classmethod
+    def password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("La contraseña debe tener al menos 8 caracteres")
+        return v
+
+    @field_validator("role")
+    @classmethod
+    def valid_role(cls, v: str) -> str:
+        if v not in {"contador", "viewer"}:
+            raise ValueError("Solo se pueden crear usuarios con rol contador o viewer")
+        return v
+
+
+class ChangeRoleRequest(BaseModel):
+    role: str
+
+    @field_validator("role")
+    @classmethod
+    def valid_role(cls, v: str) -> str:
+        if v not in {"admin", "contador", "viewer"}:
+            raise ValueError("Rol inválido")
+        return v
 
 
 class ChangePasswordRequest(BaseModel):

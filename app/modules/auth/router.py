@@ -114,11 +114,29 @@ async def get_me(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
     for m in memberships:
         if not m.company or not m.company.is_active:
             continue
-        active_features = [
+
+        # Build set of enabled parent keys for fast lookup
+        enabled_parents = {
             cf.feature.key
             for cf in m.company.features
-            if cf.is_enabled and cf.feature
-        ]
+            if cf.is_enabled and cf.feature and cf.feature.parent_key is None
+        }
+
+        active_features = []
+        for cf in m.company.features:
+            if not cf.is_enabled or not cf.feature:
+                continue
+            feature = cf.feature
+            if feature.parent_key is None:
+                # Parent feature — include always if enabled
+                active_features.append(feature.key)
+            else:
+                # Subfeature — include only if parent is enabled and role is allowed
+                if feature.parent_key in enabled_parents:
+                    allowed = cf.allowed_roles or []
+                    if not allowed or m.role in allowed:
+                        active_features.append(feature.key)
+
         companies.append(UserCompanyInfo(
             id=str(m.company.id),
             name=m.company.name,

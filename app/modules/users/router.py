@@ -6,9 +6,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.modules.auth.dependencies import CurrentUser, SuperAdmin
 from app.modules.users import service
+from app.shared.exceptions import ForbiddenError
 from app.modules.users.schemas import (
     AssignUserToCompanyRequest,
     ChangePasswordRequest,
+    ChangeRoleRequest,
+    CreateUserForCompanyRequest,
     UserCompanyRoleResponse,
     UserCreate,
     UserListResponse,
@@ -61,6 +64,15 @@ async def my_companies(
         {"company_id": str(r.company_id), "company_name": r.company.name, "role": r.role}
         for r in roles
     ]
+
+
+@router.get("/{user_id}/companies", response_model=list[UserCompanyRoleResponse])
+async def get_user_companies(
+    user_id: uuid.UUID,
+    _: SuperAdmin,
+    db: AsyncSession = Depends(get_db),
+):
+    return await service.list_company_users_by_user(db, user_id)
 
 
 @router.get("/{user_id}", response_model=UserResponse)
@@ -118,11 +130,50 @@ async def assign_user(
     return await service.assign_user_to_company(db, company_id, data)
 
 
+@company_router.post("/create", response_model=UserCompanyRoleResponse, status_code=201)
+async def create_user_for_company(
+    company_id: uuid.UUID,
+    data: CreateUserForCompanyRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin or superadmin — creates a new user and assigns them to the company."""
+    if not current_user.is_superadmin:
+        requester_role = await service.get_user_role_in_company(db, current_user.id, company_id)
+        if requester_role != "admin":
+            raise ForbiddenError("Solo los administradores pueden crear usuarios")
+    else:
+        requester_role = "superadmin"
+
+    return await service.create_user_for_company(db, company_id, data, requester_role)
+
+
+@company_router.patch("/{user_id}/role", response_model=UserCompanyRoleResponse)
+async def change_user_role(
+    company_id: uuid.UUID,
+    user_id: uuid.UUID,
+    data: ChangeRoleRequest,
+    current_user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin or superadmin — change a user's role within the company."""
+    requester_role = None
+    if not current_user.is_superadmin:
+        requester_role = await service.get_user_role_in_company(db, current_user.id, company_id)
+        if requester_role != "admin":
+            raise ForbiddenError("Solo los administradores pueden cambiar roles")
+    return await service.change_user_role_in_company(db, company_id, user_id, data.role, requester_role)
+
+
 @company_router.delete("/{user_id}", status_code=204)
 async def remove_user(
     company_id: uuid.UUID,
     user_id: uuid.UUID,
-    _: SuperAdmin,
+    current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
+    if not current_user.is_superadmin:
+        requester_role = await service.get_user_role_in_company(db, current_user.id, company_id)
+        if requester_role != "admin":
+            raise ForbiddenError("Solo los administradores pueden remover usuarios")
     await service.remove_user_from_company(db, company_id, user_id)

@@ -1,19 +1,13 @@
-"""
-Endpoints del módulo financiero.
-Todos requieren que el usuario tenga acceso a la empresa y que
-la empresa tenga habilitada la feature 'financial_dashboard'.
-"""
 import uuid
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.modules.auth.dependencies import CurrentUser, get_current_user
-from app.modules.plans.models import CompanyFeature, Feature
-from app.modules.users.models import UserCompanyRole
+from app.modules.auth.dependencies import get_current_user
+from app.modules.plans import service as plans_service
+from app.modules.users.service import assert_user_belongs_to_company, get_user_role_in_company
 from app.shared.exceptions import ForbiddenError
 
 from . import service
@@ -26,48 +20,39 @@ from .schemas import (
 router = APIRouter(prefix="/companies/{company_id}/financial", tags=["Financial"])
 
 
-async def _require_financial_access(
-    company_id: uuid.UUID,
-    current_user: Annotated[object, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-):
-    if not current_user.is_superadmin:
-        # Validate company membership
-        result = await db.execute(
-            select(UserCompanyRole).where(
-                UserCompanyRole.user_id == current_user.id,
-                UserCompanyRole.company_id == company_id,
-                UserCompanyRole.is_active == True,
-            )
-        )
-        if not result.scalar_one_or_none():
-            raise ForbiddenError("No tienes acceso a esta empresa")
+def _require_feature(feature_key: str):
+    """Factory that returns a FastAPI dependency checking a specific feature + role."""
+    async def dependency(
+        company_id: uuid.UUID,
+        current_user: Annotated[object, Depends(get_current_user)],
+        db: Annotated[AsyncSession, Depends(get_db)],
+    ):
+        if current_user.is_superadmin:
+            return
 
-        # Validate feature
-        result = await db.execute(
-            select(CompanyFeature)
-            .join(Feature, Feature.id == CompanyFeature.feature_id)
-            .where(
-                CompanyFeature.company_id == company_id,
-                Feature.key == "financial_dashboard",
-                CompanyFeature.is_enabled == True,
-            )
-        )
-        if not result.scalar_one_or_none():
-            raise ForbiddenError("Esta empresa no tiene habilitado el Dashboard Financiero")
+        await assert_user_belongs_to_company(db, current_user.id, company_id)
+        role = await get_user_role_in_company(db, current_user.id, company_id)
+
+        has_access = await plans_service.check_feature_access(db, company_id, feature_key, role)
+        if not has_access:
+            raise ForbiddenError(f"No tienes acceso a esta funcionalidad ({feature_key})")
+
+    return dependency
 
 
-FinancialAccess = Annotated[None, Depends(_require_financial_access)]
+ChartsAccess = Annotated[None, Depends(_require_feature("financial.charts"))]
+KpisAccess = Annotated[None, Depends(_require_feature("financial.kpis"))]
+LibroAccess = Annotated[None, Depends(_require_feature("financial.libro_mayor"))]
 
 
 @router.get("/meta", response_model=MetaResponse)
-async def get_meta(_: FinancialAccess):
+async def get_meta(_: KpisAccess):
     return service.get_meta()
 
 
 @router.get("/pyg/mensual")
 async def pyg_mensual(
-    _: FinancialAccess,
+    _: ChartsAccess,
     year_a: int = Query(2024),
     year_b: int = Query(2026),
 ):
@@ -109,7 +94,7 @@ async def pyg_mensual(
 
 @router.get("/pyg/trimestral")
 async def pyg_trimestral(
-    _: FinancialAccess,
+    _: ChartsAccess,
     year_a: int = Query(2024),
     year_b: int = Query(2025),
 ):
@@ -133,7 +118,7 @@ async def pyg_trimestral(
 
 @router.get("/kpis")
 async def get_kpis(
-    _: FinancialAccess,
+    _: KpisAccess,
     year_a: int = Query(2024),
     year_b: int = Query(2026),
     period: str = Query("anual"),
@@ -150,7 +135,7 @@ async def get_kpis(
 
 @router.get("/cascade")
 async def get_cascade(
-    _: FinancialAccess,
+    _: KpisAccess,
     year_a: int = Query(2024),
     year_b: int = Query(2026),
 ):
@@ -176,28 +161,28 @@ async def get_cascade(
 
 
 @router.get("/charts/sales-trend")
-async def sales_trend(_: FinancialAccess):
+async def sales_trend(_: ChartsAccess):
     return service.get_sales_trend()
 
 
 @router.get("/charts/sales-mix")
-async def sales_mix(_: FinancialAccess, year: int = Query(2024)):
+async def sales_mix(_: ChartsAccess, year: int = Query(2024)):
     return service.get_sales_mix(year)
 
 
 @router.get("/charts/quarterly-sales")
-async def quarterly_sales(_: FinancialAccess):
+async def quarterly_sales(_: ChartsAccess):
     return service.get_quarterly_sales()
 
 
 @router.get("/charts/category-sales", response_model=CategorySalesResponse)
-async def category_sales(_: FinancialAccess):
+async def category_sales(_: ChartsAccess):
     return service.get_category_sales_ytd()
 
 
 @router.get("/libro", response_model=LibroResponse)
 async def libro_mayor(
-    _: FinancialAccess,
+    _: LibroAccess,
     year: int | None = Query(None),
     month: int | None = Query(None),
     account: str | None = Query(None),

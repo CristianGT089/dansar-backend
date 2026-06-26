@@ -56,6 +56,6 @@ jobs:
           script: |
             cd /root/Projects/dansar-backend
             git pull origin develop
-            docker-compose -f docker-compose.qa.yml up -d --build
-            docker-compose -f docker-compose.qa.yml exec -T backend-qa alembic upgrade head
+            docker-compose -f docker-compose.qa.yml --env-file .env.qa --project-name dansar-qa up -d --build
+            docker-compose -f docker-compose.qa.yml --env-file .env.qa --project-name dansar-qa exec -T backend-qa alembic upgrade head
             echo "QA deploy done"

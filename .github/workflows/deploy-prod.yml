@@ -55,10 +55,9 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /opt/dan-sar
-            export IMAGE_TAG=${{ needs.build-and-push.outputs.image_tag }}
-            docker compose -f infrastructure/docker-compose.prod.yml --env-file .env.prod pull
-            docker compose -f infrastructure/docker-compose.prod.yml --env-file .env.prod run --rm backend-prod alembic upgrade head
-            docker compose -f infrastructure/docker-compose.prod.yml --env-file .env.prod up -d --no-build
+            cd /root/Projects/dansar-backend
+            git pull origin main
+            docker compose up -d --build
+            docker compose exec -T backend alembic upgrade head
             docker image prune -f
             echo "Prod deploy done"

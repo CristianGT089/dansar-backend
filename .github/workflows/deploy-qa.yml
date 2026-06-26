@@ -54,10 +54,8 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
-            cd /opt/dan-sar
+            cd /root/Projects/dansar-backend
             git pull origin develop
-            export IMAGE_TAG=${{ needs.build-and-push.outputs.image_tag }}
-            docker compose -f infrastructure/docker-compose.qa.yml --env-file .env.qa pull 2>/dev/null || true
-            docker compose -f infrastructure/docker-compose.qa.yml --env-file .env.qa up -d --build
-            docker exec dansar-backend-qa alembic upgrade head
+            docker compose -f docker-compose.qa.yml up -d --build
+            docker compose -f docker-compose.qa.yml exec -T backend-qa alembic upgrade head
             echo "QA deploy done"

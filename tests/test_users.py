@@ -205,8 +205,7 @@ async def test_change_password_wrong_current(client: AsyncClient, superadmin_tok
         json={"current_password": "incorrecta", "new_password": "nuevasegura456"},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
-    # El service lanza ValidationError (422) para contraseña incorrecta
-    assert response.status_code == 422
+    assert response.status_code == 401
 
 
 @pytest.mark.asyncio

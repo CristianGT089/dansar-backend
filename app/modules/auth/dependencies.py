@@ -6,6 +6,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from jose import JWTError
+
 from app.core.database import get_db
 from app.core.security import decode_token
 from app.modules.users.models import User, SystemRole, UserCompanyRole
@@ -18,8 +20,11 @@ async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> User:
-    payload = decode_token(credentials.credentials)
-    if not payload or payload.get("type") != "access":
+    try:
+        payload = decode_token(credentials.credentials)
+    except JWTError:
+        raise UnauthorizedError("Token inválido o expirado")
+    if payload.get("type") != "access":
         raise UnauthorizedError("Token inválido o expirado")
 
     user_id = payload.get("sub")

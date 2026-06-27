@@ -235,3 +235,22 @@ async def test_health_endpoint(client: AsyncClient):
     response = await client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
+
+
+def test_decode_invalid_token_raises():
+    """decode_token debe propagar JWTError, no silenciar con {}."""
+    from jose import JWTError
+    from app.core.security import decode_token
+
+    with pytest.raises(JWTError):
+        decode_token("esto.no.es.un.jwt.valido")
+
+
+@pytest.mark.asyncio
+async def test_health_endpoint_checks_db(client: AsyncClient):
+    """El endpoint /health debe verificar conectividad con la base de datos."""
+    response = await client.get("/health")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "ok"
+    assert data.get("db") == "ok"

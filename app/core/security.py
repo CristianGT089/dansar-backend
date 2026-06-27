@@ -37,7 +37,4 @@ def create_refresh_token(subject: str | Any) -> str:
 
 
 def decode_token(token: str) -> dict:
-    try:
-        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-    except JWTError:
-        return {}
+    return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])

@@ -12,7 +12,7 @@ from app.modules.users.schemas import (
     UserCreate,
     UserUpdate,
 )
-from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
+from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError
 
 
 async def get_user_or_404(db: AsyncSession, user_id: uuid.UUID) -> User:
@@ -85,7 +85,7 @@ async def change_password(
     db: AsyncSession, user: User, current_password: str, new_password: str
 ) -> None:
     if not verify_password(current_password, user.hashed_password):
-        raise ValidationError("Contraseña actual incorrecta")
+        raise UnauthorizedError("Contraseña actual incorrecta")
     user.hashed_password = hash_password(new_password)
     await db.flush()
 

@@ -2,7 +2,7 @@ import uuid
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -63,6 +63,7 @@ class CompanyPlan(TimeStampedModel):
 
 class CompanyFeature(TimeStampedModel):
     __tablename__ = "company_features"
+    __table_args__ = (UniqueConstraint("company_id", "feature_id", name="uq_company_features_company_feature"),)
 
     company_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False

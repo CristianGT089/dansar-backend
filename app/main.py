@@ -67,4 +67,15 @@ app.include_router(financial_router, prefix=PREFIX)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "environment": settings.ENVIRONMENT}
+    from sqlalchemy import text
+    from app.core.database import get_db
+
+    db_status = "error"
+    async for db in get_db():
+        try:
+            await db.execute(text("SELECT 1"))
+            db_status = "ok"
+        except Exception:
+            db_status = "error"
+
+    return {"status": "ok", "environment": settings.ENVIRONMENT, "db": db_status}

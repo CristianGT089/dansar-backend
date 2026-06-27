@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,7 +11,7 @@ from app.modules.catalog.models import (
     Module,
     ModuleType,
 )
-from app.modules.catalog.schemas import FeatureStatus, SubFeatureStatus
+from app.modules.catalog.schemas import FeatureNode
 from app.modules.users.models import SystemRole
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
@@ -50,50 +50,48 @@ async def create_feature(
     return feature
 
 
-async def get_company_features(db: AsyncSession, company_id: uuid.UUID) -> list[FeatureStatus]:
-    parent_features_result = await db.execute(
-        select(Feature).where(Feature.parent_key == None)
-    )
-    parent_features = parent_features_result.scalars().all()
+async def get_company_features(db: AsyncSession, company_id: uuid.UUID) -> list[FeatureNode]:
+    """
+    Devuelve el árbol de features con profundidad ilimitada.
+    Usa una sola query para cargar todos los features y sus estados,
+    luego construye el árbol en Python.
+    """
+    # Cargar todos los features
+    all_features_result = await db.execute(select(Feature))
+    all_features: list[Feature] = all_features_result.scalars().all()
 
-    children_result = await db.execute(
-        select(Feature).where(Feature.parent_key != None)
-    )
-    all_children = children_result.scalars().all()
-
+    # Cargar estados de la empresa
     cf_result = await db.execute(
         select(CompanyFeature).where(CompanyFeature.company_id == company_id)
     )
-    cf_map: dict[uuid.UUID, CompanyFeature] = {cf.feature_id: cf for cf in cf_result.scalars().all()}
+    cf_map: dict[uuid.UUID, CompanyFeature] = {
+        cf.feature_id: cf for cf in cf_result.scalars().all()
+    }
 
-    children_by_parent: dict[str, list[Feature]] = {}
-    for child in all_children:
-        children_by_parent.setdefault(child.parent_key, []).append(child)
+    # Construir nodos indexados por key
+    nodes: dict[str, FeatureNode] = {}
+    for f in all_features:
+        cf = cf_map.get(f.id)
+        nodes[f.key] = FeatureNode(
+            feature_id=str(f.id),
+            key=f.key,
+            name=f.name,
+            module=f.module,
+            is_enabled=cf.is_enabled if cf else False,
+            allowed_roles=cf.allowed_roles if cf else [],
+            children=[],
+        )
 
-    result = []
-    for parent in parent_features:
-        parent_cf = cf_map.get(parent.id)
-        children_status = []
-        for child in children_by_parent.get(parent.key, []):
-            child_cf = cf_map.get(child.id)
-            children_status.append(SubFeatureStatus(
-                feature_id=str(child.id),
-                key=child.key,
-                name=child.name,
-                module=child.module,
-                is_enabled=child_cf.is_enabled if child_cf else False,
-                allowed_roles=child_cf.allowed_roles if child_cf else [],
-            ))
-        result.append(FeatureStatus(
-            feature_id=str(parent.id),
-            key=parent.key,
-            name=parent.name,
-            module=parent.module,
-            is_enabled=parent_cf.is_enabled if parent_cf else False,
-            children=children_status,
-        ))
+    # Ensamblar árbol: asignar cada nodo a su padre
+    roots: list[FeatureNode] = []
+    for f in all_features:
+        node = nodes[f.key]
+        if f.parent_key is None:
+            roots.append(node)
+        elif f.parent_key in nodes:
+            nodes[f.parent_key].children.append(node)
 
-    return result
+    return roots
 
 
 async def toggle_feature(
@@ -101,16 +99,32 @@ async def toggle_feature(
 ) -> dict:
     feature = await _get_feature_or_404(db, feature_key)
 
+    # Al habilitar un nodo no-raíz, el padre inmediato debe estar habilitado
+    if enabled and feature.parent_key is not None:
+        parent = await _get_feature_or_404(db, feature.parent_key)
+        parent_cf_result = await db.execute(
+            select(CompanyFeature).where(
+                CompanyFeature.company_id == company_id,
+                CompanyFeature.feature_id == parent.id,
+            )
+        )
+        parent_cf = parent_cf_result.scalar_one_or_none()
+        if not parent_cf or not parent_cf.is_enabled:
+            raise ForbiddenError(f"La funcionalidad '{parent.name}' no está activa para esta empresa")
+
     cf = await _get_or_create_company_feature(db, company_id, feature.id)
     cf.is_enabled = enabled
 
-    if not enabled and feature.parent_key is None:
-        children_result = await db.execute(
-            select(Feature).where(Feature.parent_key == feature_key)
-        )
-        for child in children_result.scalars().all():
-            child_cf = await _get_or_create_company_feature(db, company_id, child.id)
-            child_cf.is_enabled = False
+    # Al deshabilitar: cascade a TODOS los descendientes (profundidad ilimitada)
+    if not enabled:
+        descendant_keys = await _get_all_descendant_keys(db, feature_key)
+        if descendant_keys:
+            desc_result = await db.execute(
+                select(Feature).where(Feature.key.in_(descendant_keys))
+            )
+            for desc in desc_result.scalars().all():
+                desc_cf = await _get_or_create_company_feature(db, company_id, desc.id)
+                desc_cf.is_enabled = False
 
     await db.flush()
     return {"feature_key": feature_key, "enabled": enabled}
@@ -119,11 +133,13 @@ async def toggle_feature(
 async def toggle_subfeature(
     db: AsyncSession, company_id: uuid.UUID, feature_key: str, enabled: bool
 ) -> dict:
+    """Para nodos no-raíz: verifica que el padre inmediato esté habilitado."""
     feature = await _get_feature_or_404(db, feature_key)
 
     if feature.parent_key is None:
         raise ForbiddenError("Solo el superadmin puede activar funcionalidades principales")
 
+    # Verificar que el padre inmediato esté habilitado
     parent = await _get_feature_or_404(db, feature.parent_key)
     parent_cf_result = await db.execute(
         select(CompanyFeature).where(
@@ -147,6 +163,7 @@ async def toggle_subfeature(
 async def set_feature_roles(
     db: AsyncSession, company_id: uuid.UUID, feature_key: str, roles: list[SystemRole]
 ) -> dict:
+    """Configura allowed_roles en cualquier nodo no-raíz."""
     feature = await _get_feature_or_404(db, feature_key)
 
     if feature.parent_key is None:
@@ -170,42 +187,72 @@ async def check_feature_access(
     feature_key: str,
     user_role: str,
 ) -> bool:
+    """
+    Verifica acceso recorriendo el árbol desde la raíz hasta el nodo solicitado.
+    Cualquier ancestro deshabilitado o con allowed_roles que excluya al rol bloquea el acceso.
+    """
     feature_result = await db.execute(
-        select(Feature)
-        .where(Feature.key == feature_key)
-        .options(selectinload(Feature.parent))
+        select(Feature).where(Feature.key == feature_key)
     )
     feature = feature_result.scalar_one_or_none()
     if not feature:
         raise NotFoundError(f"Feature '{feature_key}'")
 
-    feature_ids = [feature.id]
-    if feature.parent_key and feature.parent:
-        feature_ids.append(feature.parent.id)
+    # Obtener la cadena completa de ancestros usando CTE recursivo
+    ancestor_keys = await _get_ancestor_chain(db, feature_key)
+    all_keys = ancestor_keys + [feature_key]
 
     cf_result = await db.execute(
-        select(CompanyFeature).where(
+        select(CompanyFeature)
+        .join(Feature, CompanyFeature.feature_id == Feature.id)
+        .where(
             CompanyFeature.company_id == company_id,
-            CompanyFeature.feature_id.in_(feature_ids),
+            Feature.key.in_(all_keys),
         )
     )
-    cf_map = {cf.feature_id: cf for cf in cf_result.scalars().all()}
+    cf_by_key: dict[str, CompanyFeature] = {}
+    for cf in cf_result.scalars().all():
+        feat_row = (await db.execute(select(Feature).where(Feature.id == cf.feature_id))).scalar_one()
+        cf_by_key[feat_row.key] = cf
 
-    if feature.parent_key and feature.parent:
-        parent_cf = cf_map.get(feature.parent.id)
-        if not parent_cf or not parent_cf.is_enabled:
+    for key in all_keys:
+        cf = cf_by_key.get(key)
+        if not cf or not cf.is_enabled:
             return False
-
-    cf = cf_map.get(feature.id)
-    if not cf or not cf.is_enabled:
-        return False
-
-    if feature.parent_key:
-        if not cf.allowed_roles:
-            return False
-        return user_role in cf.allowed_roles
+        # Si el nodo tiene allowed_roles y no es la raíz, verificar rol
+        if key != all_keys[0] or feature.parent_key is not None:
+            if cf.allowed_roles and user_role not in cf.allowed_roles:
+                return False
 
     return True
+
+
+async def get_accessible_features(
+    db: AsyncSession, company_id: uuid.UUID, user_role: str
+) -> list[str]:
+    """
+    Devuelve las claves de features accesibles para un rol dado.
+    Un nodo es accesible si:
+    - Está habilitado
+    - Su allowed_roles está vacío O contiene el rol del usuario
+    - Todos sus ancestros también son accesibles
+    """
+    tree = await get_company_features(db, company_id)
+    accessible: list[str] = []
+
+    def traverse(nodes: list[FeatureNode], ancestor_blocked: bool = False) -> None:
+        for node in nodes:
+            if ancestor_blocked or not node.is_enabled:
+                continue
+            # Un nodo sin allowed_roles es libre (no restringe por rol)
+            role_ok = not node.allowed_roles or user_role in node.allowed_roles
+            if role_ok:
+                accessible.append(node.key)
+                traverse(node.children, ancestor_blocked=False)
+            # Si el rol no tiene acceso a este nodo, sus hijos tampoco
+
+    traverse(tree)
+    return accessible
 
 
 async def assign_module_to_company(
@@ -261,3 +308,39 @@ async def _get_or_create_company_feature(
         db.add(cf)
         await db.flush()
     return cf
+
+
+async def _get_all_descendant_keys(db: AsyncSession, root_key: str) -> list[str]:
+    """CTE recursivo para obtener todas las claves descendientes de un nodo."""
+    result = await db.execute(
+        text("""
+            WITH RECURSIVE descendants AS (
+                SELECT key FROM features WHERE parent_key = :root_key
+                UNION ALL
+                SELECT f.key FROM features f
+                INNER JOIN descendants d ON f.parent_key = d.key
+            )
+            SELECT key FROM descendants
+        """),
+        {"root_key": root_key},
+    )
+    return [row[0] for row in result.fetchall()]
+
+
+async def _get_ancestor_chain(db: AsyncSession, feature_key: str) -> list[str]:
+    """CTE recursivo para obtener la cadena de ancestros en orden raíz→padre."""
+    result = await db.execute(
+        text("""
+            WITH RECURSIVE ancestors AS (
+                SELECT key, parent_key FROM features WHERE key = :feature_key
+                UNION ALL
+                SELECT f.key, f.parent_key FROM features f
+                INNER JOIN ancestors a ON f.key = a.parent_key
+            )
+            SELECT key FROM ancestors WHERE key != :feature_key
+        """),
+        {"feature_key": feature_key},
+    )
+    # Devolver en orden raíz→padre (invertir, ya que el CTE sube)
+    keys = [row[0] for row in result.fetchall()]
+    return list(reversed(keys))

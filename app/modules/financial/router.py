@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.auth.dependencies import get_current_user
-from app.modules.plans import service as plans_service
+from app.modules.catalog import service as catalog_service
 from app.modules.users.service import assert_user_belongs_to_company, get_user_role_in_company
 from app.shared.exceptions import ForbiddenError
 
@@ -33,7 +33,7 @@ def _require_feature(feature_key: str):
         await assert_user_belongs_to_company(db, current_user.id, company_id)
         role = await get_user_role_in_company(db, current_user.id, company_id)
 
-        has_access = await plans_service.check_feature_access(db, company_id, feature_key, role)
+        has_access = await catalog_service.check_feature_access(db, company_id, feature_key, role)
         if not has_access:
             raise ForbiddenError(f"No tienes acceso a esta funcionalidad ({feature_key})")
 

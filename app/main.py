@@ -48,8 +48,8 @@ from app.modules.auth.router import router as auth_router
 from app.modules.companies.router import router as companies_router
 from app.modules.users.router import router as users_router
 from app.modules.users.router import company_router as company_users_router
-from app.modules.plans.router import router as plans_router
-from app.modules.plans.router import company_plans_router
+from app.modules.catalog.router import router as modules_router
+from app.modules.catalog.router import company_modules_router
 from app.modules.admin.router import router as admin_router
 from app.modules.financial.router import router as financial_router
 
@@ -59,8 +59,8 @@ app.include_router(auth_router, prefix=PREFIX)
 app.include_router(companies_router, prefix=PREFIX)
 app.include_router(users_router, prefix=PREFIX)
 app.include_router(company_users_router, prefix=PREFIX)
-app.include_router(plans_router, prefix=PREFIX)
-app.include_router(company_plans_router, prefix=PREFIX)
+app.include_router(modules_router, prefix=PREFIX)
+app.include_router(company_modules_router, prefix=PREFIX)
 app.include_router(admin_router, prefix=PREFIX)
 app.include_router(financial_router, prefix=PREFIX)
 

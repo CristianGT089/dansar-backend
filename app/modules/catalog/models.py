@@ -9,21 +9,21 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.models import TimeStampedModel
 
 
-class PlanType(str, Enum):
+class ModuleType(str, Enum):
     basic = "basic"
     professional = "professional"
     enterprise = "enterprise"
 
 
-class Plan(TimeStampedModel):
-    __tablename__ = "plans"
+class Module(TimeStampedModel):
+    __tablename__ = "modules"
 
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     type: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    companies: Mapped[list["CompanyPlan"]] = relationship(back_populates="plan")
+    companies: Mapped[list["CompanyModule"]] = relationship(back_populates="module")
 
 
 class Feature(TimeStampedModel):
@@ -34,7 +34,7 @@ class Feature(TimeStampedModel):
     description: Mapped[str] = mapped_column(Text, nullable=True)
     module: Mapped[str] = mapped_column(String(100), nullable=True)
     parent_key: Mapped[Optional[str]] = mapped_column(
-        String(100), ForeignKey("features.key", ondelete="CASCADE"), nullable=True
+        String(100), ForeignKey("features.key", ondelete="CASCADE"), nullable=True, index=True
     )
 
     children: Mapped[list["Feature"]] = relationship(
@@ -46,19 +46,19 @@ class Feature(TimeStampedModel):
     company_features: Mapped[list["CompanyFeature"]] = relationship(back_populates="feature")
 
 
-class CompanyPlan(TimeStampedModel):
-    __tablename__ = "company_plans"
+class CompanyModule(TimeStampedModel):
+    __tablename__ = "company_modules"
 
     company_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False, unique=True
     )
-    plan_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("plans.id"), nullable=False
+    module_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("modules.id"), nullable=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    company: Mapped["Company"] = relationship(back_populates="plan")
-    plan: Mapped["Plan"] = relationship(back_populates="companies")
+    company: Mapped["Company"] = relationship(back_populates="module", foreign_keys=[company_id])
+    module: Mapped["Module"] = relationship(back_populates="companies")
 
 
 class CompanyFeature(TimeStampedModel):

@@ -5,13 +5,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.modules.auth.dependencies import CurrentUser, SuperAdmin
-from app.modules.plans import service
-from app.modules.plans.schemas import (
-    AssignPlanRequest,
+from app.modules.catalog import service
+from app.modules.catalog.schemas import (
+    AssignModuleRequest,
     CompanyFeaturesResponse,
     FeatureCreate,
     FeatureResponse,
-    PlanResponse,
+    ModuleResponse,
     SetFeatureRolesRequest,
     ToggleFeatureRequest,
     ToggleSubfeatureRequest,
@@ -20,15 +20,15 @@ from app.modules.users.models import SystemRole
 from app.modules.users.service import assert_user_belongs_to_company, get_user_role_in_company
 from app.shared.exceptions import ForbiddenError
 
-router = APIRouter(prefix="/plans", tags=["Plans"])
+router = APIRouter(prefix="/modules", tags=["Modules"])
 
 
-@router.get("", response_model=list[PlanResponse])
-async def list_plans(
+@router.get("", response_model=list[ModuleResponse])
+async def list_modules(
     _: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    return await service.list_plans(db)
+    return await service.list_modules(db)
 
 
 @router.get("/features", response_model=list[FeatureResponse])
@@ -50,10 +50,10 @@ async def create_feature(
 
 # ── Features por empresa ──────────────────────────────────────────────────────
 
-company_plans_router = APIRouter(prefix="/companies/{company_id}/plan", tags=["Company Plans"])
+company_modules_router = APIRouter(prefix="/companies/{company_id}/module", tags=["Company Modules"])
 
 
-@company_plans_router.get("", response_model=CompanyFeaturesResponse)
+@company_modules_router.get("", response_model=CompanyFeaturesResponse)
 async def get_company_features(
     company_id: uuid.UUID,
     current_user: CurrentUser,
@@ -65,29 +65,28 @@ async def get_company_features(
     return CompanyFeaturesResponse(company_id=company_id, features=features)
 
 
-@company_plans_router.post("/assign")
-async def assign_plan(
+@company_modules_router.post("/assign")
+async def assign_module(
     company_id: uuid.UUID,
-    data: AssignPlanRequest,
+    data: AssignModuleRequest,
     _: SuperAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    cp = await service.assign_plan_to_company(db, company_id, data.plan_type)
-    return {"company_id": str(company_id), "plan_id": str(cp.plan_id), "is_active": cp.is_active}
+    cm = await service.assign_module_to_company(db, company_id, data.module_type)
+    return {"company_id": str(company_id), "module_id": str(cm.module_id), "is_active": cm.is_active}
 
 
-@company_plans_router.post("/features/toggle")
+@company_modules_router.post("/features/toggle")
 async def toggle_feature(
     company_id: uuid.UUID,
     data: ToggleFeatureRequest,
     _: SuperAdmin,
     db: AsyncSession = Depends(get_db),
 ):
-    """Superadmin only — toggle any feature including parents."""
     return await service.toggle_feature(db, company_id, data.feature_key, data.enabled)
 
 
-@company_plans_router.patch("/features/{feature_key}/toggle")
+@company_modules_router.patch("/features/{feature_key}/toggle")
 async def toggle_subfeature(
     company_id: uuid.UUID,
     feature_key: str,
@@ -95,7 +94,6 @@ async def toggle_subfeature(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin or superadmin — toggle subfeatures only."""
     if not current_user.is_superadmin:
         await assert_user_belongs_to_company(db, current_user.id, company_id)
         role = await get_user_role_in_company(db, current_user.id, company_id)
@@ -104,7 +102,7 @@ async def toggle_subfeature(
     return await service.toggle_subfeature(db, company_id, feature_key, data.enabled)
 
 
-@company_plans_router.patch("/features/{feature_key}/roles")
+@company_modules_router.patch("/features/{feature_key}/roles")
 async def set_feature_roles(
     company_id: uuid.UUID,
     feature_key: str,
@@ -112,7 +110,6 @@ async def set_feature_roles(
     current_user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
-    """Admin or superadmin — configure which roles can access a subfeature."""
     if not current_user.is_superadmin:
         await assert_user_belongs_to_company(db, current_user.id, company_id)
         role = await get_user_role_in_company(db, current_user.id, company_id)

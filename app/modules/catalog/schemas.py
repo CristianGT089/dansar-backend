@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from app.modules.users.models import SystemRole
 
 
-class PlanResponse(BaseModel):
+class ModuleResponse(BaseModel):
     id: uuid.UUID
     name: str
     type: str
@@ -16,27 +16,29 @@ class PlanResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class SubFeatureStatus(BaseModel):
+class FeatureNode(BaseModel):
+    """Nodo recursivo del árbol de features — profundidad ilimitada."""
     feature_id: str
     key: str
     name: str
     module: Optional[str]
     is_enabled: bool
-    allowed_roles: list[str]
+    allowed_roles: list[str] = []
+    children: list["FeatureNode"] = []
+
+    model_config = {"from_attributes": True}
 
 
-class FeatureStatus(BaseModel):
-    feature_id: str
-    key: str
-    name: str
-    module: Optional[str]
-    is_enabled: bool
-    children: list[SubFeatureStatus] = []
+FeatureNode.model_rebuild()
+
+# Alias para compatibilidad con el frontend existente
+FeatureStatus = FeatureNode
+SubFeatureStatus = FeatureNode
 
 
 class CompanyFeaturesResponse(BaseModel):
     company_id: uuid.UUID
-    features: list[FeatureStatus]
+    features: list[FeatureNode]
 
 
 class FeatureResponse(BaseModel):
@@ -71,5 +73,5 @@ class SetFeatureRolesRequest(BaseModel):
     roles: list[SystemRole]
 
 
-class AssignPlanRequest(BaseModel):
-    plan_type: str
+class AssignModuleRequest(BaseModel):
+    module_type: str

@@ -28,5 +28,5 @@ class Company(TimeStampedModel):
 
     # Relationships
     user_roles: Mapped[list["UserCompanyRole"]] = relationship(back_populates="company")
-    plan: Mapped["CompanyPlan"] = relationship(back_populates="company", uselist=False)
+    module: Mapped["CompanyModule"] = relationship(back_populates="company", uselist=False)
     features: Mapped[list["CompanyFeature"]] = relationship(back_populates="company")

@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.modules.auth import service as auth_service
@@ -13,8 +12,7 @@ from app.modules.auth.schemas import (
     TokenResponse,
     UserCompanyInfo,
 )
-from app.modules.companies.models import Company
-from app.modules.plans.models import CompanyFeature
+from app.modules.catalog import service as catalog_service
 from app.modules.users.models import UserCompanyRole
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -46,39 +44,27 @@ async def get_me(current_user: CurrentUser, db: AsyncSession = Depends(get_db)):
             UserCompanyRole.user_id == current_user.id,
             UserCompanyRole.is_active == True,
         )
-        .options(
-            selectinload(UserCompanyRole.company).selectinload(Company.features).selectinload(CompanyFeature.feature)
-        )
     )
     memberships = result.scalars().all()
 
     companies = []
     for m in memberships:
-        if not m.company or not m.company.is_active:
+        # Lazy-load company to check is_active
+        from app.modules.companies.models import Company
+        co_result = await db.execute(
+            select(Company).where(Company.id == m.company_id, Company.is_active == True)
+        )
+        company = co_result.scalar_one_or_none()
+        if not company:
             continue
 
-        enabled_parents = {
-            cf.feature.key
-            for cf in m.company.features
-            if cf.is_enabled and cf.feature and cf.feature.parent_key is None
-        }
-
-        active_features = []
-        for cf in m.company.features:
-            if not cf.is_enabled or not cf.feature:
-                continue
-            feature = cf.feature
-            if feature.parent_key is None:
-                active_features.append(feature.key)
-            else:
-                if feature.parent_key in enabled_parents:
-                    allowed = cf.allowed_roles or []
-                    if not allowed or m.role in allowed:
-                        active_features.append(feature.key)
+        active_features = await catalog_service.get_accessible_features(
+            db, m.company_id, m.role
+        )
 
         companies.append(UserCompanyInfo(
-            id=str(m.company.id),
-            name=m.company.name,
+            id=str(company.id),
+            name=company.name,
             role=m.role,
             features=active_features,
         ))

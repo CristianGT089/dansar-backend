@@ -115,16 +115,15 @@ async def toggle_feature(
     cf = await _get_or_create_company_feature(db, company_id, feature.id)
     cf.is_enabled = enabled
 
-    # Al deshabilitar: cascade a TODOS los descendientes (profundidad ilimitada)
-    if not enabled:
-        descendant_keys = await _get_all_descendant_keys(db, feature_key)
-        if descendant_keys:
-            desc_result = await db.execute(
-                select(Feature).where(Feature.key.in_(descendant_keys))
-            )
-            for desc in desc_result.scalars().all():
-                desc_cf = await _get_or_create_company_feature(db, company_id, desc.id)
-                desc_cf.is_enabled = False
+    # Cascade a TODOS los descendientes
+    descendant_keys = await _get_all_descendant_keys(db, feature_key)
+    if descendant_keys:
+        desc_result = await db.execute(
+            select(Feature).where(Feature.key.in_(descendant_keys))
+        )
+        for desc in desc_result.scalars().all():
+            desc_cf = await _get_or_create_company_feature(db, company_id, desc.id)
+            desc_cf.is_enabled = enabled
 
     await db.flush()
     return {"feature_key": feature_key, "enabled": enabled}
@@ -163,16 +162,38 @@ async def toggle_subfeature(
 async def set_feature_roles(
     db: AsyncSession, company_id: uuid.UUID, feature_key: str, roles: list[SystemRole]
 ) -> dict:
-    """Configura allowed_roles en cualquier nodo no-raíz."""
+    """Configura allowed_roles en cualquier nivel del árbol.
+
+    En nodos no-raíz los roles deben ser subconjunto de los que el nodo raíz permite.
+    Un nodo raíz con allowed_roles=[] significa acceso irrestricto por rol.
+    """
     feature = await _get_feature_or_404(db, feature_key)
 
-    if feature.parent_key is None:
-        raise ForbiddenError("Los roles solo se configuran en subfuncionalidades")
+    valid_roles = {SystemRole.admin, SystemRole.contador, SystemRole.viewer}
+    requested = set(roles)
+    invalid = requested - valid_roles
+    if invalid:
+        raise ValidationError(f"Roles inválidos: {invalid}. Opciones: admin, contador, viewer")
 
-    valid_roles = [SystemRole.admin, SystemRole.contador, SystemRole.viewer]
-    for role in roles:
-        if role not in valid_roles:
-            raise ValidationError(f"Rol inválido: {role}. Opciones: admin, contador, viewer")
+    # Para nodos no-raíz: los roles deben ser subconjunto de los del nodo raíz
+    if feature.parent_key is not None:
+        root_key = await _get_root_key(db, feature_key)
+        root_feature = await _get_feature_or_404(db, root_key)
+        root_cf_result = await db.execute(
+            select(CompanyFeature).where(
+                CompanyFeature.company_id == company_id,
+                CompanyFeature.feature_id == root_feature.id,
+            )
+        )
+        root_cf = root_cf_result.scalar_one_or_none()
+        root_roles = set(root_cf.allowed_roles) if root_cf and root_cf.allowed_roles else set()
+
+        if root_roles:
+            invalid_for_child = {r.value for r in requested} - root_roles
+            if invalid_for_child:
+                raise ValidationError(
+                    f"Roles no permitidos por el nodo raíz '{root_key}': {invalid_for_child}"
+                )
 
     cf = await _get_or_create_company_feature(db, company_id, feature.id)
     cf.allowed_roles = [r.value for r in roles]
@@ -325,6 +346,24 @@ async def _get_all_descendant_keys(db: AsyncSession, root_key: str) -> list[str]
         {"root_key": root_key},
     )
     return [row[0] for row in result.fetchall()]
+
+
+async def _get_root_key(db: AsyncSession, feature_key: str) -> str:
+    """Devuelve la clave del nodo raíz de un feature (el ancestro sin parent_key)."""
+    result = await db.execute(
+        text("""
+            WITH RECURSIVE ancestors AS (
+                SELECT key, parent_key FROM features WHERE key = :feature_key
+                UNION ALL
+                SELECT f.key, f.parent_key FROM features f
+                INNER JOIN ancestors a ON f.key = a.parent_key
+            )
+            SELECT key FROM ancestors WHERE parent_key IS NULL
+        """),
+        {"feature_key": feature_key},
+    )
+    row = result.fetchone()
+    return row[0] if row else feature_key
 
 
 async def _get_ancestor_chain(db: AsyncSession, feature_key: str) -> list[str]:

@@ -268,15 +268,17 @@ async def test_set_feature_roles(
 
 
 @pytest.mark.asyncio
-async def test_set_roles_on_parent_rejected(
+async def test_set_roles_on_root_feature_allowed(
     client: AsyncClient, superadmin_token: str, company, feature_parent
 ):
+    """El superadmin puede asignar roles en nodos raíz para restringir el acceso a toda la rama."""
     response = await client.patch(
         f"/api/v1/companies/{company.id}/module/features/{feature_parent.key}/roles",
         json={"roles": ["admin"]},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert "admin" in response.json()["allowed_roles"]
 
 
 @pytest.mark.asyncio

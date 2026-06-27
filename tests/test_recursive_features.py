@@ -178,3 +178,86 @@ async def test_allowed_roles_apply_at_any_depth(
     assert "tree.root.n1" not in features
     # tree.root.n1.n2 tampoco (su ancestro n1 está restringido)
     assert "tree.root.n1.n2" not in features
+
+# ── Tests cascade enable + roles en raíz + filtrado ──────────────────────────
+
+@pytest.mark.asyncio
+async def test_enable_parent_auto_enables_children(
+    client: AsyncClient,
+    superadmin_token: str,
+    deep_tree,
+    tree_company,
+    db: AsyncSession,
+):
+    """Habilitar la raíz debe habilitar automáticamente todos sus descendientes."""
+    from sqlalchemy import select
+    from app.modules.catalog.models import CompanyFeature, Feature
+
+    response = await client.post(
+        f"/api/v1/companies/{tree_company.id}/module/features/toggle",
+        json={"feature_key": "tree.root", "enabled": True},
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert response.status_code == 200
+
+    for key in ["tree.root.n1", "tree.root.n1.n2", "tree.root.n1.n2.n3"]:
+        feat = (await db.execute(select(Feature).where(Feature.key == key))).scalar_one()
+        cf = (await db.execute(
+            select(CompanyFeature).where(
+                CompanyFeature.company_id == tree_company.id,
+                CompanyFeature.feature_id == feat.id,
+            )
+        )).scalar_one_or_none()
+        assert cf is not None and cf.is_enabled is True, f"{key} debería haberse habilitado automáticamente"
+
+
+@pytest.mark.asyncio
+async def test_set_roles_on_root_feature(
+    client: AsyncClient,
+    superadmin_token: str,
+    deep_tree,
+    tree_company,
+):
+    """El superadmin debe poder asignar roles en nodos raíz."""
+    response = await client.patch(
+        f"/api/v1/companies/{tree_company.id}/module/features/tree.root/roles",
+        json={"roles": ["admin", "contador"]},
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert response.status_code == 200
+    assert set(response.json()["allowed_roles"]) == {"admin", "contador"}
+
+
+@pytest.mark.asyncio
+async def test_child_roles_must_be_subset_of_root(
+    client: AsyncClient,
+    superadmin_token: str,
+    deep_tree,
+    tree_company,
+):
+    """Asignar un rol al hijo que el padre raíz no permite debe fallar con 422."""
+    # root ya tiene allowed_roles=["admin","contador"] del test anterior
+    # Intentar darle "viewer" a n1 (no está en el root)
+    response = await client.patch(
+        f"/api/v1/companies/{tree_company.id}/module/features/tree.root.n1/roles",
+        json={"roles": ["viewer"]},
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_child_roles_subset_of_root_is_allowed(
+    client: AsyncClient,
+    superadmin_token: str,
+    deep_tree,
+    tree_company,
+):
+    """Asignar un subconjunto válido de roles del root debe funcionar."""
+    response = await client.patch(
+        f"/api/v1/companies/{tree_company.id}/module/features/tree.root.n1/roles",
+        json={"roles": ["admin"]},
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["allowed_roles"] == ["admin"]

@@ -121,9 +121,9 @@ async def company(db: AsyncSession):
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def plan_basic(db: AsyncSession):
-    from app.modules.plans.models import Plan
+    from app.modules.catalog.models import Module
 
-    plan = Plan(name="Básico", type="basic", description="Plan básico de prueba", is_active=True)
+    plan = Module(name="Básico", type="basic", description="Plan básico de prueba", is_active=True)
     db.add(plan)
     await db.commit()
     await db.refresh(plan)
@@ -132,7 +132,7 @@ async def plan_basic(db: AsyncSession):
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def feature_parent(db: AsyncSession):
-    from app.modules.plans.models import Feature
+    from app.modules.catalog.models import Feature
 
     f = Feature(key="test.module", name="Módulo Test", module="test")
     db.add(f)
@@ -143,7 +143,7 @@ async def feature_parent(db: AsyncSession):
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def feature_child(db: AsyncSession, feature_parent):
-    from app.modules.plans.models import Feature
+    from app.modules.catalog.models import Feature
 
     f = Feature(
         key="test.module.sub",

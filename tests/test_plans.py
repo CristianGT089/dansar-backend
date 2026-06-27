@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 @pytest.mark.asyncio
 async def test_list_plans_returns_active(client: AsyncClient, superadmin_token: str, plan_basic):
     response = await client.get(
-        "/api/v1/plans",
+        "/api/v1/modules",
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     assert response.status_code == 200
@@ -18,15 +18,15 @@ async def test_list_plans_returns_active(client: AsyncClient, superadmin_token: 
 
 @pytest.mark.asyncio
 async def test_list_plans_requires_auth(client: AsyncClient):
-    response = await client.get("/api/v1/plans")
+    response = await client.get("/api/v1/modules")
     assert response.status_code == 403
 
 
 @pytest.mark.asyncio
 async def test_assign_plan_to_company(client: AsyncClient, superadmin_token: str, company, plan_basic):
     response = await client.post(
-        f"/api/v1/companies/{company.id}/plan/assign",
-        json={"plan_type": "basic"},
+        f"/api/v1/companies/{company.id}/module/assign",
+        json={"module_type": "basic"},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     assert response.status_code == 200
@@ -38,8 +38,8 @@ async def test_assign_plan_to_company(client: AsyncClient, superadmin_token: str
 @pytest.mark.asyncio
 async def test_assign_plan_invalid_type(client: AsyncClient, superadmin_token: str, company):
     response = await client.post(
-        f"/api/v1/companies/{company.id}/plan/assign",
-        json={"plan_type": "nonexistent"},
+        f"/api/v1/companies/{company.id}/module/assign",
+        json={"module_type": "nonexistent"},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     assert response.status_code == 422
@@ -48,8 +48,8 @@ async def test_assign_plan_invalid_type(client: AsyncClient, superadmin_token: s
 @pytest.mark.asyncio
 async def test_assign_plan_requires_superadmin(client: AsyncClient, admin_token: str, company, plan_basic):
     response = await client.post(
-        f"/api/v1/companies/{company.id}/plan/assign",
-        json={"plan_type": "basic"},
+        f"/api/v1/companies/{company.id}/module/assign",
+        json={"module_type": "basic"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert response.status_code == 403
@@ -60,7 +60,7 @@ async def test_assign_plan_requires_superadmin(client: AsyncClient, admin_token:
 @pytest.mark.asyncio
 async def test_list_features(client: AsyncClient, superadmin_token: str, feature_parent):
     response = await client.get(
-        "/api/v1/plans/features",
+        "/api/v1/modules/features",
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     assert response.status_code == 200
@@ -71,7 +71,7 @@ async def test_list_features(client: AsyncClient, superadmin_token: str, feature
 @pytest.mark.asyncio
 async def test_create_feature_superadmin(client: AsyncClient, superadmin_token: str):
     response = await client.post(
-        "/api/v1/plans/features",
+        "/api/v1/modules/features",
         json={"key": "new.feature", "name": "Nueva Feature", "module": "test"},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -82,7 +82,7 @@ async def test_create_feature_superadmin(client: AsyncClient, superadmin_token: 
 @pytest.mark.asyncio
 async def test_create_feature_duplicate_key(client: AsyncClient, superadmin_token: str, feature_parent):
     response = await client.post(
-        "/api/v1/plans/features",
+        "/api/v1/modules/features",
         json={"key": feature_parent.key, "name": "Duplicada", "module": "test"},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -92,7 +92,7 @@ async def test_create_feature_duplicate_key(client: AsyncClient, superadmin_toke
 @pytest.mark.asyncio
 async def test_create_feature_with_invalid_parent(client: AsyncClient, superadmin_token: str):
     response = await client.post(
-        "/api/v1/plans/features",
+        "/api/v1/modules/features",
         json={"key": "orphan.feature", "name": "Orphan", "module": "test", "parent_key": "no.existe"},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -102,7 +102,7 @@ async def test_create_feature_with_invalid_parent(client: AsyncClient, superadmi
 @pytest.mark.asyncio
 async def test_create_feature_with_valid_parent(client: AsyncClient, superadmin_token: str, feature_parent):
     response = await client.post(
-        "/api/v1/plans/features",
+        "/api/v1/modules/features",
         json={
             "key": "test.module.child2",
             "name": "Hijo 2",
@@ -118,7 +118,7 @@ async def test_create_feature_with_valid_parent(client: AsyncClient, superadmin_
 @pytest.mark.asyncio
 async def test_create_feature_requires_superadmin(client: AsyncClient, admin_token: str):
     response = await client.post(
-        "/api/v1/plans/features",
+        "/api/v1/modules/features",
         json={"key": "blocked.feature", "name": "Bloqueada", "module": "test"},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -130,7 +130,7 @@ async def test_create_feature_requires_superadmin(client: AsyncClient, admin_tok
 @pytest.mark.asyncio
 async def test_get_company_features_empty(client: AsyncClient, superadmin_token: str, company):
     response = await client.get(
-        f"/api/v1/companies/{company.id}/plan",
+        f"/api/v1/companies/{company.id}/module",
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     assert response.status_code == 200
@@ -142,7 +142,7 @@ async def test_get_company_features_empty(client: AsyncClient, superadmin_token:
 @pytest.mark.asyncio
 async def test_toggle_feature_enable(client: AsyncClient, superadmin_token: str, company, feature_parent):
     response = await client.post(
-        f"/api/v1/companies/{company.id}/plan/features/toggle",
+        f"/api/v1/companies/{company.id}/module/features/toggle",
         json={"feature_key": feature_parent.key, "enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -160,24 +160,24 @@ async def test_toggle_feature_disable_cascades_to_children(
     db: AsyncSession,
 ):
     from sqlalchemy import select
-    from app.modules.plans.models import CompanyFeature, Feature
+    from app.modules.catalog.models import CompanyFeature, Feature
 
     # Enable parent
     await client.post(
-        f"/api/v1/companies/{company.id}/plan/features/toggle",
+        f"/api/v1/companies/{company.id}/module/features/toggle",
         json={"feature_key": feature_parent.key, "enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
     # Enable child
     await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_child.key}/toggle",
+        f"/api/v1/companies/{company.id}/module/features/{feature_child.key}/toggle",
         json={"enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
 
     # Now disable parent — child should cascade to disabled
     await client.post(
-        f"/api/v1/companies/{company.id}/plan/features/toggle",
+        f"/api/v1/companies/{company.id}/module/features/toggle",
         json={"feature_key": feature_parent.key, "enabled": False},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -201,7 +201,7 @@ async def test_toggle_subfeature_requires_parent_enabled(
 ):
     # Parent is disabled (default) — toggling subfeature should fail
     response = await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_child.key}/toggle",
+        f"/api/v1/companies/{company.id}/module/features/{feature_child.key}/toggle",
         json={"enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -213,7 +213,7 @@ async def test_toggle_parent_via_subfeature_endpoint_rejected(
     client: AsyncClient, superadmin_token: str, company, feature_parent
 ):
     response = await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_parent.key}/toggle",
+        f"/api/v1/companies/{company.id}/module/features/{feature_parent.key}/toggle",
         json={"enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -231,13 +231,13 @@ async def test_admin_can_toggle_subfeature(
 ):
     # Superadmin enables parent first
     await client.post(
-        f"/api/v1/companies/{company.id}/plan/features/toggle",
+        f"/api/v1/companies/{company.id}/module/features/toggle",
         json={"feature_key": feature_parent.key, "enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
 
     response = await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_child.key}/toggle",
+        f"/api/v1/companies/{company.id}/module/features/{feature_child.key}/toggle",
         json={"enabled": True},
         headers={"Authorization": f"Bearer {admin_token}"},
     )
@@ -253,13 +253,13 @@ async def test_set_feature_roles(
 ):
     # Enable parent first
     await client.post(
-        f"/api/v1/companies/{company.id}/plan/features/toggle",
+        f"/api/v1/companies/{company.id}/module/features/toggle",
         json={"feature_key": feature_parent.key, "enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
 
     response = await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_child.key}/roles",
+        f"/api/v1/companies/{company.id}/module/features/{feature_child.key}/roles",
         json={"roles": ["admin", "contador"]},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -272,7 +272,7 @@ async def test_set_roles_on_parent_rejected(
     client: AsyncClient, superadmin_token: str, company, feature_parent
 ):
     response = await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_parent.key}/roles",
+        f"/api/v1/companies/{company.id}/module/features/{feature_parent.key}/roles",
         json={"roles": ["admin"]},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -284,13 +284,13 @@ async def test_set_invalid_role_rejected(
     client: AsyncClient, superadmin_token: str, company, feature_parent, feature_child
 ):
     await client.post(
-        f"/api/v1/companies/{company.id}/plan/features/toggle",
+        f"/api/v1/companies/{company.id}/module/features/toggle",
         json={"feature_key": feature_parent.key, "enabled": True},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
 
     response = await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_child.key}/roles",
+        f"/api/v1/companies/{company.id}/module/features/{feature_child.key}/roles",
         json={"roles": ["superadmin"]},
         headers={"Authorization": f"Bearer {superadmin_token}"},
     )
@@ -326,7 +326,7 @@ async def test_viewer_cannot_set_roles(
     viewer_token = login.json()["access_token"]
 
     response = await client.patch(
-        f"/api/v1/companies/{company.id}/plan/features/{feature_child.key}/roles",
+        f"/api/v1/companies/{company.id}/module/features/{feature_child.key}/roles",
         json={"roles": ["viewer"]},
         headers={"Authorization": f"Bearer {viewer_token}"},
     )

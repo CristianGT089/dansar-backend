@@ -78,7 +78,7 @@ async def test_get_me_includes_company_features(client: AsyncClient, db: AsyncSe
     from app.core.security import hash_password, create_access_token
     from app.modules.companies.models import Company
     from app.modules.users.models import User, UserCompanyRole
-    from app.modules.plans.models import Feature, CompanyFeature
+    from app.modules.catalog.models import Feature, CompanyFeature
 
     # Entidades propias de este test para no interferir con fixtures compartidas
     co = Company(name="Me Test Company", tax_id="111000111-1")
@@ -122,7 +122,7 @@ async def test_get_me_subfeature_hidden_by_role(client: AsyncClient, db: AsyncSe
     from app.core.security import hash_password, create_access_token
     from app.modules.companies.models import Company
     from app.modules.users.models import User, UserCompanyRole
-    from app.modules.plans.models import Feature, CompanyFeature
+    from app.modules.catalog.models import Feature, CompanyFeature
 
     co = Company(name="Me Viewer Company", tax_id="222000222-2")
     db.add(co)

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from app.modules.users.models import SystemRole
 
 
-class PlanResponse(BaseModel):
+class ModuleResponse(BaseModel):
     id: uuid.UUID
     name: str
     type: str
@@ -71,5 +71,5 @@ class SetFeatureRolesRequest(BaseModel):
     roles: list[SystemRole]
 
 
-class AssignPlanRequest(BaseModel):
-    plan_type: str
+class AssignModuleRequest(BaseModel):
+    module_type: str

@@ -4,20 +4,20 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.plans.models import (
+from app.modules.catalog.models import (
     CompanyFeature,
-    CompanyPlan,
+    CompanyModule,
     Feature,
-    Plan,
-    PlanType,
+    Module,
+    ModuleType,
 )
-from app.modules.plans.schemas import FeatureStatus, SubFeatureStatus
+from app.modules.catalog.schemas import FeatureStatus, SubFeatureStatus
 from app.modules.users.models import SystemRole
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 
-async def list_plans(db: AsyncSession) -> list[Plan]:
-    result = await db.execute(select(Plan).where(Plan.is_active == True))
+async def list_modules(db: AsyncSession) -> list[Module]:
+    result = await db.execute(select(Module).where(Module.is_active == True))
     return result.scalars().all()
 
 
@@ -26,7 +26,14 @@ async def list_features(db: AsyncSession) -> list[Feature]:
     return result.scalars().all()
 
 
-async def create_feature(db: AsyncSession, key: str, name: str, description: str | None, module: str | None, parent_key: str | None = None) -> Feature:
+async def create_feature(
+    db: AsyncSession,
+    key: str,
+    name: str,
+    description: str | None,
+    module: str | None,
+    parent_key: str | None = None,
+) -> Feature:
     existing = await db.execute(select(Feature).where(Feature.key == key))
     if existing.scalar_one_or_none():
         raise ConflictError(f"Feature '{key}' ya existe")
@@ -44,18 +51,16 @@ async def create_feature(db: AsyncSession, key: str, name: str, description: str
 
 
 async def get_company_features(db: AsyncSession, company_id: uuid.UUID) -> list[FeatureStatus]:
-    # Load all features with their children
-    all_features_result = await db.execute(
+    parent_features_result = await db.execute(
         select(Feature).where(Feature.parent_key == None)
     )
-    parent_features = all_features_result.scalars().all()
+    parent_features = parent_features_result.scalars().all()
 
     children_result = await db.execute(
         select(Feature).where(Feature.parent_key != None)
     )
     all_children = children_result.scalars().all()
 
-    # Load company feature states
     cf_result = await db.execute(
         select(CompanyFeature).where(CompanyFeature.company_id == company_id)
     )
@@ -94,13 +99,11 @@ async def get_company_features(db: AsyncSession, company_id: uuid.UUID) -> list[
 async def toggle_feature(
     db: AsyncSession, company_id: uuid.UUID, feature_key: str, enabled: bool
 ) -> dict:
-    """Superadmin only — toggles any feature (parent or child)."""
     feature = await _get_feature_or_404(db, feature_key)
 
     cf = await _get_or_create_company_feature(db, company_id, feature.id)
     cf.is_enabled = enabled
 
-    # When disabling a parent, disable all children too
     if not enabled and feature.parent_key is None:
         children_result = await db.execute(
             select(Feature).where(Feature.parent_key == feature_key)
@@ -116,13 +119,11 @@ async def toggle_feature(
 async def toggle_subfeature(
     db: AsyncSession, company_id: uuid.UUID, feature_key: str, enabled: bool
 ) -> dict:
-    """Admin or superadmin — only for subfeatures (has parent_key)."""
     feature = await _get_feature_or_404(db, feature_key)
 
     if feature.parent_key is None:
         raise ForbiddenError("Solo el superadmin puede activar funcionalidades principales")
 
-    # Verify parent is enabled
     parent = await _get_feature_or_404(db, feature.parent_key)
     parent_cf_result = await db.execute(
         select(CompanyFeature).where(
@@ -146,7 +147,6 @@ async def toggle_subfeature(
 async def set_feature_roles(
     db: AsyncSession, company_id: uuid.UUID, feature_key: str, roles: list[SystemRole]
 ) -> dict:
-    """Admin or superadmin — sets which roles can access a subfeature."""
     feature = await _get_feature_or_404(db, feature_key)
 
     if feature.parent_key is None:
@@ -170,12 +170,6 @@ async def check_feature_access(
     feature_key: str,
     user_role: str,
 ) -> bool:
-    """
-    Returns True if the user's role has access to this feature.
-    For subfeatures: checks parent is enabled + subfeature is enabled + role is in allowed_roles.
-    For parent features: just checks is_enabled.
-    Empty allowed_roles means no one has access.
-    """
     feature_result = await db.execute(
         select(Feature)
         .where(Feature.key == feature_key)
@@ -214,6 +208,34 @@ async def check_feature_access(
     return True
 
 
+async def assign_module_to_company(
+    db: AsyncSession, company_id: uuid.UUID, module_type: str
+) -> CompanyModule:
+    if module_type not in [m.value for m in ModuleType]:
+        raise ValidationError(f"Módulo inválido. Opciones: {[m.value for m in ModuleType]}")
+
+    module_result = await db.execute(select(Module).where(Module.type == module_type))
+    module = module_result.scalar_one_or_none()
+    if not module:
+        raise NotFoundError("Módulo")
+
+    existing = await db.execute(
+        select(CompanyModule).where(CompanyModule.company_id == company_id)
+    )
+    cm = existing.scalar_one_or_none()
+
+    if cm:
+        cm.module_id = module.id
+        cm.is_active = True
+    else:
+        cm = CompanyModule(company_id=company_id, module_id=module.id)
+        db.add(cm)
+
+    await db.flush()
+    await db.refresh(cm)
+    return cm
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 async def _get_feature_or_404(db: AsyncSession, key: str) -> Feature:
@@ -239,31 +261,3 @@ async def _get_or_create_company_feature(
         db.add(cf)
         await db.flush()
     return cf
-
-
-async def assign_plan_to_company(
-    db: AsyncSession, company_id: uuid.UUID, plan_type: str
-) -> CompanyPlan:
-    if plan_type not in [p.value for p in PlanType]:
-        raise ValidationError(f"Plan inválido. Opciones: {[p.value for p in PlanType]}")
-
-    plan_result = await db.execute(select(Plan).where(Plan.type == plan_type))
-    plan = plan_result.scalar_one_or_none()
-    if not plan:
-        raise NotFoundError("Plan")
-
-    existing = await db.execute(
-        select(CompanyPlan).where(CompanyPlan.company_id == company_id)
-    )
-    cp = existing.scalar_one_or_none()
-
-    if cp:
-        cp.plan_id = plan.id
-        cp.is_active = True
-    else:
-        cp = CompanyPlan(company_id=company_id, plan_id=plan.id)
-        db.add(cp)
-
-    await db.flush()
-    await db.refresh(cp)
-    return cp

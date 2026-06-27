@@ -13,8 +13,8 @@ from app.modules.auth.schemas import (
     TokenResponse,
     UserCompanyInfo,
 )
+from app.modules.catalog.models import CompanyFeature
 from app.modules.companies.models import Company
-from app.modules.plans.models import CompanyFeature
 from app.modules.users.models import UserCompanyRole
 
 router = APIRouter(prefix="/auth", tags=["Auth"])

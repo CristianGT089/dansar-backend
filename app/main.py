@@ -8,8 +8,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from app.core.config import get_settings
+from app.core.logging_config import configure_structlog, init_sentry
 import app.core.models_registry  # noqa: F401 — registra todos los modelos con SQLAlchemy
 
+configure_structlog()
 settings = get_settings()
 logger = structlog.get_logger()
 limiter = Limiter(key_func=get_remote_address)
@@ -17,6 +19,7 @@ limiter = Limiter(key_func=get_remote_address)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_sentry(dsn=settings.SENTRY_DSN, environment=settings.ENVIRONMENT)
     logger.info("startup", app=settings.APP_NAME, env=settings.ENVIRONMENT)
     yield
     logger.info("shutdown")
@@ -42,6 +45,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from app.middleware.logging import RequestLoggingMiddleware
+app.add_middleware(RequestLoggingMiddleware)
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 from app.modules.auth.router import router as auth_router

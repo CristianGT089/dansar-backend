@@ -1,6 +1,7 @@
 import hashlib
 import uuid
 
+import structlog
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,14 +15,18 @@ from app.core.security import (
 from app.modules.users.models import RefreshToken, User
 from app.shared.exceptions import UnauthorizedError
 
+logger = structlog.get_logger()
+
 
 async def login(db: AsyncSession, email: str, password: str) -> dict:
     result = await db.execute(select(User).where(User.email == email))
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(password, user.hashed_password):
+        await logger.ainfo("user_login_failed", email=email, reason="bad_credentials")
         raise UnauthorizedError("Credenciales incorrectas")
     if not user.is_active:
+        await logger.ainfo("user_login_failed", email=email, reason="inactive_user")
         raise UnauthorizedError("Usuario inactivo")
 
     access_token = create_access_token(str(user.id))
@@ -31,6 +36,7 @@ async def login(db: AsyncSession, email: str, password: str) -> dict:
     db.add(RefreshToken(user_id=user.id, token_hash=token_hash))
     await db.commit()
 
+    await logger.ainfo("user_login", user_id=str(user.id), email=user.email)
     return {"access_token": access_token, "refresh_token": refresh_token}
 
 
@@ -77,3 +83,5 @@ async def logout(db: AsyncSession, user_id: uuid.UUID) -> None:
     for token in result.scalars().all():
         token.is_revoked = True
     await db.commit()
+
+    await logger.ainfo("user_logout", user_id=str(user_id))

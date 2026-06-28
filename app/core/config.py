@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # CORS — configurar explícitamente por entorno (ej: ["https://app.dansar.co"])
     ALLOWED_ORIGINS: list[str] = ["http://localhost:3000"]
 
+    # Observabilidad
+    SENTRY_DSN: str = ""
+
     # Email
     MAIL_USERNAME: str = ""
     MAIL_PASSWORD: str = ""

@@ -155,6 +155,16 @@ async def toggle_subfeature(
     if enabled and not cf.allowed_roles:
         cf.allowed_roles = [SystemRole.admin.value]
 
+    # Cascade a todos los descendientes (enable y disable)
+    descendant_keys = await _get_all_descendant_keys(db, feature_key)
+    if descendant_keys:
+        desc_result = await db.execute(
+            select(Feature).where(Feature.key.in_(descendant_keys))
+        )
+        for desc in desc_result.scalars().all():
+            desc_cf = await _get_or_create_company_feature(db, company_id, desc.id)
+            desc_cf.is_enabled = enabled
+
     await db.flush()
     return {"feature_key": feature_key, "enabled": enabled, "allowed_roles": cf.allowed_roles}
 

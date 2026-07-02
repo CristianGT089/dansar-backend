@@ -102,6 +102,10 @@ FEATURES = [
 
 
 def upgrade() -> None:
+    # Las migraciones 0002 y 0003 insertaron features accounting.* planas (sin jerarquía).
+    # Las eliminamos para reemplazarlas con el árbol de 4 niveles.
+    op.execute("DELETE FROM features WHERE key LIKE 'accounting%'")
+
     features_table = sa.table(
         "features",
         sa.column("id", sa.String),

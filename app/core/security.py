@@ -30,7 +30,7 @@ def create_access_token(subject: str | Any, extra: dict = {}) -> str:
 
 def create_refresh_token(subject: str | Any) -> str:
     expire = datetime.now(timezone.utc) + timedelta(
-        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+        hours=settings.REFRESH_TOKEN_EXPIRE_HOURS
     )
     payload = {"sub": str(subject), "exp": expire, "type": "refresh", "jti": str(uuid.uuid4())}
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)

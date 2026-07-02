@@ -261,3 +261,42 @@ async def test_child_roles_subset_of_root_is_allowed(
     )
     assert response.status_code == 200
     assert response.json()["allowed_roles"] == ["admin"]
+
+
+@pytest.mark.asyncio
+async def test_toggle_subfeature_cascades_to_children(
+    client: AsyncClient,
+    superadmin_token: str,
+    deep_tree,
+    tree_company,
+    db: AsyncSession,
+):
+    """Habilitar un nodo intermedio via PATCH debe habilitar todos sus descendientes."""
+    from sqlalchemy import select
+    from app.modules.catalog.models import CompanyFeature, Feature
+
+    # Habilitar raíz y n1 para cumplir requisito de padre habilitado
+    for key in ["tree.root", "tree.root.n1"]:
+        await client.post(
+            f"/api/v1/companies/{tree_company.id}/module/features/toggle",
+            json={"feature_key": key, "enabled": True},
+            headers={"Authorization": f"Bearer {superadmin_token}"},
+        )
+
+    # Habilitar n2 via PATCH (toggle_subfeature) — debe cascadear a n3
+    response = await client.patch(
+        f"/api/v1/companies/{tree_company.id}/module/features/tree.root.n1.n2/toggle",
+        json={"enabled": True},
+        headers={"Authorization": f"Bearer {superadmin_token}"},
+    )
+    assert response.status_code == 200
+
+    # n3 debe haberse habilitado automáticamente
+    feat = (await db.execute(select(Feature).where(Feature.key == "tree.root.n1.n2.n3"))).scalar_one()
+    cf = (await db.execute(
+        select(CompanyFeature).where(
+            CompanyFeature.company_id == tree_company.id,
+            CompanyFeature.feature_id == feat.id,
+        )
+    )).scalar_one_or_none()
+    assert cf is not None and cf.is_enabled is True, "n3 debería haberse habilitado en cascade"
